@@ -1,0 +1,97 @@
+version: "3.9"
+
+services:
+  # ──────────────────────────────
+  # PostgreSQL 데이터베이스
+  # ──────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: arm_db
+    environment:
+      POSTGRES_DB: arm_db
+      POSTGRES_USER: arm_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01_init.sql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arm_user -d arm_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - arm_network
+
+  # ──────────────────────────────
+  # FastAPI 백엔드
+  # ──────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: arm_backend
+    environment:
+      DATABASE_URL: postgresql://arm_user:${DB_PASSWORD}@db:5432/arm_db
+      DAOU_CLIENT_ID: ${DAOU_CLIENT_ID}
+      DAOU_CLIENT_SECRET: ${DAOU_CLIENT_SECRET}
+      WOORI_CLIENT_ID: ${WOORI_CLIENT_ID}
+      WOORI_CLIENT_SECRET: ${WOORI_CLIENT_SECRET}
+      CODEF_CLIENT_ID: ${CODEF_CLIENT_ID}
+      CODEF_CLIENT_SECRET: ${CODEF_CLIENT_SECRET}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      GOOGLE_APPLICATION_CREDENTIALS: /app/gcp-key.json
+      SERVER_URL: ${SERVER_URL:-https://13.125.110.156}
+      JWT_SECRET: ${JWT_SECRET}
+      ENV: production
+    volumes:
+      - ./backend/gcp-key.json:/app/gcp-key.json:ro
+      - receipt_uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - arm_network
+
+  # ──────────────────────────────
+  # React 프론트엔드
+  # ──────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: arm_frontend
+    restart: unless-stopped
+    networks:
+      - arm_network
+
+  # ──────────────────────────────
+  # Nginx 리버스 프록시 + HTTPS
+  # ──────────────────────────────
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: arm_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - certbot_webroot:/var/www/certbot
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+    networks:
+      - arm_network
+
+volumes:
+  pgdata:
+  receipt_uploads:
+  certbot_webroot:
+
+networks:
+  arm_network:
+    driver: bridge
