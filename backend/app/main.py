@@ -392,3 +392,73 @@ async def get_dashboard_stats(db: Session = Depends(get_db)):
             for s in stats
         ]
     }
+
+
+# ─────────────────────────────────────────
+# 다우오피스 연동 테스트 엔드포인트
+# ─────────────────────────────────────────
+class DaouTestRequest(BaseModel):
+    emp_no: str = "htkim"
+    merchant: str = "스타벅스 강남점"
+    amount: int = 15000
+    date: str = "2026-03-22"
+
+@app.post("/api/test/daou-approval")
+async def test_daou_approval(req: DaouTestRequest):
+    """다우오피스 전자결재 연동 테스트"""
+    logger.info(f"다우오피스 테스트 요청: {req}")
+
+    # 테스트용 영수증 데이터
+    receipt = {
+        "merchant": req.merchant,
+        "amount": req.amount,
+        "date": req.date,
+        "time": "12:30",
+        "vat": int(req.amount * 0.1),
+        "approval_no": f"TEST-{req.date.replace('-','')}"
+    }
+    expense_code = {
+        "code": "MEAL_CLIENT",
+        "name": "접대비(식대)",
+        "source": "자동분류"
+    }
+    gps_result = {
+        "grade": "GREEN",
+        "score": 90,
+        "details": ["테스트: GPS 검증 통과"]
+    }
+
+    logger.info(f"다우오피스 BASE_URL: {daou_service.base_url}")
+    logger.info(f"다우오피스 FORM_CODE: {daou_service.form_code}")
+
+    # 전자결재 기안 생성 시도
+    result = await daou_service.create_expense_approval(
+        receipt=receipt,
+        emp_no=req.emp_no,
+        expense_code=expense_code,
+        gps_result=gps_result,
+        use_popup=True
+    )
+
+    return {
+        "test": "다우오피스 전자결재 테스트",
+        "config": {
+            "base_url": daou_service.base_url,
+            "form_code": daou_service.form_code,
+            "client_id": daou_service.client_id[:8] + "****"
+        },
+        "request": receipt,
+        "result": result
+    }
+
+
+@app.get("/api/test/daou-config")
+async def test_daou_config():
+    """다우오피스 설정값 확인"""
+    return {
+        "base_url": daou_service.base_url,
+        "form_code": daou_service.form_code,
+        "approval_url": daou_service.approval_url,
+        "client_id_prefix": daou_service.client_id[:8] + "****",
+        "status": "설정 완료"
+    }
