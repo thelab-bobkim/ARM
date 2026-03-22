@@ -20,6 +20,7 @@ from app.services.ocr_service import OCRService
 from app.services.expense_mapping import ExpenseCodeMappingService
 from app.services.gps_validation import GPSValidationEngine
 from app.services.daou_service import DaouOfficeService
+from app.services.merchant_location import MerchantLocationService
 from app.adapters.factory import get_adapter
 
 logging.basicConfig(level=logging.INFO)
@@ -34,6 +35,7 @@ daou_service = DaouOfficeService(DAOU_CLIENT_ID, DAOU_CLIENT_SECRET, SERVER_URL)
 ocr_service = OCRService()
 mapping_service = ExpenseCodeMappingService()
 gps_engine = GPSValidationEngine()
+location_service = MerchantLocationService()
 
 
 @asynccontextmanager
@@ -79,6 +81,18 @@ class CallbackPayload(BaseModel):
     partnerDocId: Optional[str] = None
 
 
+class GpsRetryRequest(BaseModel):
+    emp_no: str
+    receipt_date: Optional[str] = None
+
+
+class ExemptSubmitRequest(BaseModel):
+    emp_no: str
+    receipt: Optional[dict] = None
+    expense_code: Optional[dict] = None
+    exempt_reason: str
+
+
 # ─────────────────────────────────────────
 # Health Check
 # ─────────────────────────────────────────
@@ -94,16 +108,18 @@ async def health_check():
 async def upload_receipt(
     file: UploadFile = File(...),
     emp_no: str = Form(...),
+    capture_lat: Optional[float] = Form(None),   # 📍 촬영 시 GPS 위도
+    capture_lng: Optional[float] = Form(None),   # 📍 촬영 시 GPS 경도
     db: Session = Depends(get_db)
 ):
     """
-    메인 파이프라인:
+    메인 파이프라인 v2.1 (실시간 GPS 검증 추가):
     1. 영수증 OCR
     2. 경비코드 자동 매핑
-    3. GPS 교차검증
-    4. GREEN → 자동 전자결재 기안
-       YELLOW → 담당자 검토 알림
-       RED → 반려 + GPS 체크 유도
+    3. GPS 검증
+       - capture_lat/lng 있음 → 실시간 위치 기반 (가맹점 거리 계산)
+       - capture_lat/lng 없음 → 다우오피스 출근 기록 기반 (기존 방식)
+    4. GREEN → 자동 전자결재 / YELLOW → 검토 / RED → 반려
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(400, "이미지 파일만 업로드 가능합니다.")
@@ -124,10 +140,26 @@ async def upload_receipt(
     )
     logger.info(f"[{emp_no}] 경비코드 매핑: {expense_code['code']} ({expense_code['source']})")
 
-    # 3. GPS 교차검증
-    gps_logs = await daou_service.get_attendance_gps(emp_no, receipt_data.get("date", ""))
-    gps_result = gps_engine.calculate_trust_score(receipt_data, gps_logs)
-    logger.info(f"[{emp_no}] GPS 검증: {gps_result['grade']} ({gps_result['score']}점)")
+    # 3. GPS 검증 - 실시간 위치 우선, 없으면 출근 기록 사용
+    gps_mode = "REALTIME" if (capture_lat and capture_lng) else "ATTENDANCE"
+
+    if gps_mode == "REALTIME":
+        # 📍 신규: 촬영 위치 ↔ 가맹점 위치 비교
+        logger.info(f"[{emp_no}] 실시간 GPS 검증: ({capture_lat:.4f}, {capture_lng:.4f})")
+        gps_result = await location_service.validate(
+            merchant_name=receipt_data.get("merchant", ""),
+            capture_lat=capture_lat,
+            capture_lng=capture_lng,
+        )
+        gps_result["mode"] = "REALTIME"
+    else:
+        # 기존: 다우오피스 출근 GPS 기록 비교
+        logger.info(f"[{emp_no}] 출근기록 GPS 검증 (위치정보 없음)")
+        gps_logs = await daou_service.get_attendance_gps(emp_no, receipt_data.get("date", ""))
+        gps_result = gps_engine.calculate_trust_score(receipt_data, gps_logs)
+        gps_result["mode"] = "ATTENDANCE"
+
+    logger.info(f"[{emp_no}] GPS 검증결과: {gps_result['grade']} ({gps_result['score']}점) [{gps_mode}]")
 
     # 4. 등급별 처리
     result = await _process_by_grade(emp_no, receipt_data, expense_code, gps_result, db)
@@ -143,6 +175,39 @@ async def upload_receipt(
         "gps": gps_result,
         "result": result
     })
+
+
+# ─────────────────────────────────────────
+# GPS 재검증 (다우오피스 출근 후 재시도)
+# ─────────────────────────────────────────
+@app.post("/api/receipts/gps-retry")
+async def gps_retry(req: GpsRetryRequest):
+    """다우오피스 GPS 등록 후 재검증"""
+    gps_logs = await daou_service.get_attendance_gps(req.emp_no, req.receipt_date or "")
+    if gps_logs:
+        return {"gps": {"score": 80, "grade": "GREEN", "details": ["GPS 출근 기록 확인됨"],
+                        "mode": "ATTENDANCE_RETRY"},
+                "result": {"status": "RETRY_READY"}}
+    return {"gps": {"score": 25, "grade": "RED", "details": ["GPS 출근 기록 없음"],
+                    "mode": "ATTENDANCE_RETRY"},
+            "result": {"status": "REJECTED"}}
+
+
+# ─────────────────────────────────────────
+# GPS 면제 사유 제출 (담당자 검토 요청)
+# ─────────────────────────────────────────
+@app.post("/api/receipts/exempt-submit")
+async def exempt_submit(req: ExemptSubmitRequest):
+    """GPS 면제 사유 입력 후 담당자 검토 요청"""
+    await daou_service.send_notification(
+        req.emp_no,
+        f"📋 GPS 면제 검토 요청\n"
+        f"직원: {req.emp_no}\n"
+        f"가맹점: {req.receipt.get('merchant') if req.receipt else '-'}\n"
+        f"금액: {req.receipt.get('amount', 0):,}원\n"
+        f"사유: {req.exempt_reason}"
+    )
+    return {"status": "submitted", "message": "담당자 검토 요청이 전송되었습니다."}
 
 
 async def _process_by_grade(emp_no, receipt, expense_code, gps_result, db):

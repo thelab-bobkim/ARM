@@ -5,13 +5,59 @@ import { useDropzone } from "react-dropzone";
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
 // ─────────────────────────────────────────
+// GPS 위치 수집 Hook
+// ─────────────────────────────────────────
+function useCurrentLocation() {
+  const [location, setLocation] = useState(null);   // {lat, lng, accuracy}
+  const [locStatus, setLocStatus] = useState("idle"); // idle | requesting | granted | denied
+
+  const request = () => {
+    if (!navigator.geolocation) {
+      setLocStatus("denied");
+      return;
+    }
+    setLocStatus("requesting");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLocation({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: Math.round(pos.coords.accuracy),
+        });
+        setLocStatus("granted");
+      },
+      (err) => {
+        console.warn("[GPS] 위치 권한 거부:", err.message);
+        setLocStatus("denied");
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+    );
+  };
+
+  // 컴포넌트 마운트 시 미리 위치 요청
+  useEffect(() => { request(); }, []);
+
+  return { location, locStatus, requestLocation: request };
+}
+
+// ─────────────────────────────────────────
 // ReceiptUpload - 영수증 사진 업로드 컴포넌트
 // ─────────────────────────────────────────
 export function ReceiptUpload({ empNo }) {
-  const [status, setStatus] = useState("idle"); // idle | uploading | success | error
+  const [status, setStatus] = useState("idle");
   const [result, setResult] = useState(null);
   const [preview, setPreview] = useState(null);
   const cameraInputRef = useRef(null);
+  const { location, locStatus, requestLocation } = useCurrentLocation();
+
+  // GPS 상태 배지
+  const gpsBadge = {
+    idle:       { text: "위치 준비 중",    color: "bg-gray-100 text-gray-500",   icon: "📍" },
+    requesting: { text: "위치 수집 중...", color: "bg-blue-100 text-blue-600",  icon: "🔄" },
+    granted:    { text: `GPS 준비완료 (±${location?.accuracy ?? "?"}m)`,
+                                           color: "bg-green-100 text-green-700", icon: "✅" },
+    denied:     { text: "위치 권한 없음",  color: "bg-yellow-100 text-yellow-700", icon: "⚠️" },
+  }[locStatus] ?? { text: "", color: "", icon: "" };
 
   // 카메라로 직접 촬영한 파일 처리
   const handleCameraCapture = async (e) => {
@@ -22,7 +68,7 @@ export function ReceiptUpload({ empNo }) {
     e.target.value = "";
   };
 
-  // 공통 파일 처리 함수
+  // 공통 파일 처리 함수 - GPS 좌표 자동 첨부
   const processFile = async (file) => {
     setPreview(URL.createObjectURL(file));
     setStatus("uploading");
@@ -31,6 +77,15 @@ export function ReceiptUpload({ empNo }) {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("emp_no", empNo || "EMP001");
+
+    // 📍 GPS 좌표 자동 첨부 (있을 경우)
+    if (location?.lat && location?.lng) {
+      formData.append("capture_lat", String(location.lat));
+      formData.append("capture_lng", String(location.lng));
+      console.log(`[GPS] 촬영 위치 첨부: (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)})`);
+    } else {
+      console.log("[GPS] 위치 정보 없음 → 출근기록 GPS 방식으로 처리");
+    }
 
     try {
       const resp = await axios.post(`${API_BASE}/receipts/upload`, formData, {
@@ -91,16 +146,42 @@ export function ReceiptUpload({ empNo }) {
     <div className="max-w-2xl mx-auto p-6 space-y-6">
       <h2 className="text-2xl font-bold text-gray-800">영수증 업로드</h2>
 
-      {/* 카메라 직접 촬영 버튼 (모바일 우선) */}
+      {/* GPS 상태 배지 */}
+      <div className={`flex items-center justify-between px-4 py-2.5 rounded-xl text-sm font-medium ${gpsBadge.color}`}>
+        <span>{gpsBadge.icon} {gpsBadge.text}</span>
+        {locStatus === "denied" && (
+          <button
+            onClick={requestLocation}
+            className="text-xs underline font-bold ml-2"
+          >
+            다시 시도
+          </button>
+        )}
+        {locStatus === "granted" && (
+          <span className="text-xs opacity-70">실제 방문 화인에 사용됩니다</span>
+        )}
+      </div>
+
+      {/* 카메라 직접 촬영 버튼 */}
       <button
-        onClick={() => cameraInputRef.current?.click()}
+        onClick={() => {
+          if (locStatus === "idle" || locStatus === "denied") requestLocation();
+          cameraInputRef.current?.click();
+        }}
         disabled={status === "uploading"}
         className="w-full flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-700
                    disabled:bg-blue-300 text-white font-bold py-5 rounded-2xl shadow-lg
                    text-lg transition-all active:scale-95"
       >
         <span className="text-3xl">📸</span>
-        <span>카메라로 바로 촬영</span>
+        <div className="text-left">
+          <div>카메라로 바로 촬영</div>
+          <div className="text-xs font-normal opacity-80">
+            {locStatus === "granted"
+              ? `📍 GPS 자동 체크 (±${location?.accuracy}m)`
+              : "📍 권한 허용 후 자동 체크"}
+          </div>
+        </div>
       </button>
       {/* 카메라 input (숨김) - capture="environment"로 후면 카메라 우선 */}
       <input
@@ -162,6 +243,21 @@ export function ReceiptUpload({ empNo }) {
                 {gradeEmoji[result.gps.grade]} GPS 검증 결과: {result.gps.grade} ({result.gps.score}점)
               </div>
               <div className="text-sm mt-1">{result.gps.details?.join(" · ")}</div>
+              {/* 검증 모드 표시 */}
+              <div className="mt-2 flex items-center gap-2">
+                {result.gps.mode === "REALTIME" ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-bold">
+                    📍 실시간 위치 검증
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs">
+                    🕒 출근기록 기반
+                  </span>
+                )}
+                {result.gps.distance_m != null && (
+                  <span className="text-xs opacity-75">가맹점까지 {result.gps.distance_m.toLocaleString()}m</span>
+                )}
+              </div>
             </div>
           )}
 
