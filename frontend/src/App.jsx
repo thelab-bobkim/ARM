@@ -2,6 +2,32 @@ import { useState, useEffect } from "react";
 import { ReceiptUpload, CardSelector, TransactionList, Dashboard } from "./components";
 import axios from "axios";
 
+// ✅ PWA 설치 배너 컴포넌트
+function PWAInstallBanner({ onDismiss }) {
+  return (
+    <div className="fixed bottom-0 left-0 right-0 z-50 bg-blue-700 text-white px-4 py-3 flex items-center justify-between shadow-2xl"
+         style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
+      <div className="flex items-center gap-3">
+        <img src="/icons/icon-72x72.png" alt="ARM" className="w-10 h-10 rounded-xl" />
+        <div>
+          <p className="font-bold text-sm">ARM 경비 앱 설치</p>
+          <p className="text-blue-200 text-xs">홈 화면에 추가하여 앱처럼 사용하세요</p>
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={onDismiss}
+          className="px-3 py-1.5 text-xs text-blue-200 hover:text-white"
+        >나중에</button>
+        <button
+          onClick={() => window.armPWA?.install()}
+          className="px-4 py-1.5 bg-white text-blue-700 rounded-lg text-xs font-bold"
+        >설치</button>
+      </div>
+    </div>
+  );
+}
+
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
 function App() {
@@ -10,6 +36,8 @@ function App() {
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(false);
   const [cardCompany, setCardCompany] = useState("WOORI");
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
   const empNo = "EMP001"; // 실제 구현 시 JWT에서 추출
 
   useEffect(() => {
@@ -17,6 +45,24 @@ function App() {
       fetchStats();
     }
   }, [activeTab]);
+
+  // PWA 설치 상태 감지
+  useEffect(() => {
+    const standalone = window.matchMedia('(display-mode: standalone)').matches
+      || window.navigator.standalone === true;
+    setIsStandalone(standalone);
+
+    const handleInstallable = () => {
+      if (!standalone && !localStorage.getItem('arm-pwa-dismissed')) {
+        setTimeout(() => setShowInstallBanner(true), 3000);
+      }
+    };
+    window.addEventListener('arm-pwa-installable', handleInstallable);
+    window.addEventListener('arm-pwa-installed', () => setShowInstallBanner(false));
+    return () => {
+      window.removeEventListener('arm-pwa-installable', handleInstallable);
+    };
+  }, []);
 
   const fetchStats = async () => {
     try {
@@ -40,13 +86,20 @@ function App() {
     { id: "settings",    label: "경비코드 관리", emoji: "⚙️" },
   ];
 
+  const handleDismissBanner = () => {
+    setShowInstallBanner(false);
+    localStorage.setItem('arm-pwa-dismissed', '1');
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* PWA 설치 배너 */}
+      {showInstallBanner && <PWAInstallBanner onDismiss={handleDismissBanner} />}
       {/* 헤더 */}
       <header className="bg-blue-700 text-white shadow-lg">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold">ARM Platform</h1>
+            <h1 className="text-xl font-bold">ARM Platform {isStandalone && <span className="text-xs bg-green-500 px-1.5 py-0.5 rounded ml-1">앱</span>}</h1>
             <p className="text-blue-200 text-xs">다우오피스 경비 자동청구 시스템 v2.0</p>
           </div>
           <div className="text-sm text-blue-200">
@@ -134,11 +187,16 @@ function App() {
       </main>
 
       {/* 푸터 */}
-      <footer className="mt-12 py-6 border-t border-gray-200 text-center text-sm text-gray-400">
-        ARM Platform v2.0 · AWS Lightsail 13.125.110.156 ·{" "}
+      <footer className="mt-12 py-6 border-t border-gray-200 text-center text-sm text-gray-400" style={{ paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom))' }}>
+        ARM Platform v2.0 · AWS Lightsail ·{" "}
         <a href="https://github.com/thelab-bobkim/ARM" className="text-blue-500 hover:underline" target="_blank" rel="noreferrer">
           GitHub
         </a>
+        {!isStandalone && (
+          <span className="ml-3">
+            · <button onClick={() => window.armPWA?.install()} className="text-blue-500 hover:underline">📱 앱 설치</button>
+          </span>
+        )}
       </footer>
     </div>
   );

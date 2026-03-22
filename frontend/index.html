@@ -2,11 +2,96 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    
+    <!-- ===== PWA 기본 메타태그 ===== -->
     <title>ARM Platform - 경비 자동청구 시스템</title>
-    <meta name="description" content="다우오피스 연동 경비 자동청구 시스템 v2.0" />
+    <meta name="description" content="다우오피스 연동 경비 자동청구 시스템 v2.0 - 영수증 OCR, GPS 검증, 자동 결재" />
+    <meta name="keywords" content="경비청구, 영수증, 다우오피스, 결재, ARM Platform" />
+    <meta name="author" content="DSTI ARM Platform" />
+    
+    <!-- ===== PWA Manifest ===== -->
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- ===== 테마 색상 ===== -->
+    <meta name="theme-color" content="#2563eb" />
+    <meta name="msapplication-TileColor" content="#2563eb" />
+    <meta name="msapplication-navbutton-color" content="#2563eb" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    
+    <!-- ===== iOS PWA 지원 ===== -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="ARM Platform" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    
+    <!-- ===== 앱 아이콘 ===== -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192x192.png" />
+    
+    <!-- ===== Open Graph (카카오톡/슬랙 공유시 미리보기) ===== -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="ARM Platform - 경비 자동청구 시스템" />
+    <meta property="og:description" content="다우오피스 연동 경비 자동청구 시스템 v2.0" />
+    <meta property="og:image" content="/icons/icon-512x512.png" />
+    
+    <!-- ===== iOS 스플래시 스크린 배경 ===== -->
+    <style>
+      body {
+        background-color: #1e3a5f;
+      }
+      /* 앱 로딩 스피너 */
+      #app-loading {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%);
+        z-index: 9999;
+        transition: opacity 0.5s ease;
+      }
+      #app-loading.hidden { opacity: 0; pointer-events: none; }
+      .loading-logo {
+        width: 96px; height: 96px;
+        background: white;
+        border-radius: 20px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 28px; font-weight: 900;
+        color: #2563eb;
+        margin-bottom: 20px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+      }
+      .loading-title {
+        color: white; font-size: 20px; font-weight: 700; margin-bottom: 8px;
+        font-family: -apple-system, sans-serif;
+      }
+      .loading-sub {
+        color: rgba(255,255,255,0.7); font-size: 13px;
+        font-family: -apple-system, sans-serif;
+      }
+      .loading-spinner {
+        width: 36px; height: 36px;
+        border: 3px solid rgba(255,255,255,0.3);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        margin-top: 24px;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
   </head>
   <body>
+    <!-- 로딩 스플래시 스크린 -->
+    <div id="app-loading">
+      <div class="loading-logo">ARM</div>
+      <div class="loading-title">ARM Platform</div>
+      <div class="loading-sub">경비 자동청구 시스템 v2.0</div>
+      <div class="loading-spinner"></div>
+    </div>
+    
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

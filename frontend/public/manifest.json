@@ -1,0 +1,56 @@
+{
+  "name": "ARM Platform - 경비 자동청구 시스템",
+  "short_name": "ARM Platform",
+  "description": "다우오피스 연동 경비 자동청구 시스템 v2.0",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1e3a5f",
+  "theme_color": "#2563eb",
+  "orientation": "portrait-primary",
+  "lang": "ko",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "영수증 업로드",
+      "short_name": "업로드",
+      "description": "영수증을 빠르게 업로드합니다",
+      "url": "/?tab=upload",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "거래 내역",
+      "short_name": "내역",
+      "description": "경비 거래 내역을 확인합니다",
+      "url": "/?tab=transactions",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "대시보드",
+      "short_name": "대시보드",
+      "description": "경비 현황 대시보드",
+      "url": "/?tab=dashboard",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    }
+  ],
+  "categories": ["business", "finance", "productivity"],
+  "prefer_related_applications": false
+}
