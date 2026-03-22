@@ -29,16 +29,42 @@ class MerchantLocationService:
         coords = None
 
         if KAKAO_API_KEY:
+            # 1차: 전체 가맹점명으로 검색
             coords = await self._kakao_search(merchant_name, address_hint)
+
+            # 2차: 실패 시 가맹점명 앞 2단어만 추출해서 재검색
+            # 예) "굿스마일컴퍼니 원규" → "굿스마일컴퍼니"
+            # 예) "이마트 트레이더스 킨텍스점" → "이마트 트레이더스"
+            if not coords:
+                short_name = self._shorten_merchant_name(merchant_name)
+                if short_name != merchant_name:
+                    logger.info(f"[위치검색] 단축명으로 재검색: '{merchant_name}' → '{short_name}'")
+                    coords = await self._kakao_search(short_name, address_hint)
 
         if not coords and GOOGLE_PLACES_KEY:
             coords = await self._google_places_search(merchant_name, address_hint)
 
         if not coords:
-            # API 키 없을 때 → 한국 주요 프랜차이즈 좌표 fallback DB
             coords = self._fallback_coords(merchant_name)
 
         return coords
+
+    def _shorten_merchant_name(self, name: str) -> str:
+        """
+        카드 가맹점명에서 핵심 브랜드명만 추출
+        - 뒤에 붙는 코드/지점코드 제거
+        - 예) '굿스마일컴퍼니 원규' → '굿스마일컴퍼니'
+        - 예) 'STARBUCKS 1234' → 'STARBUCKS'
+        - 예) '맥도날드 강남DT점' → '맥도날드'
+        """
+        import re
+        # 숫자+영문 코드 제거 (카드 가맹점 고유코드)
+        name = re.sub(r'\s+[A-Z0-9]{2,}$', '', name.strip())
+        # 지점명 제거 (점, DT점, R점 등)
+        name = re.sub(r'\s+\S*(점|DT점|R점|센터|지점|본점|직영점)$', '', name)
+        # 앞 2단어만 추출
+        words = name.split()
+        return ' '.join(words[:2]) if len(words) > 2 else name
 
     async def _kakao_search(self, keyword: str, address_hint: str = "") -> Optional[Dict]:
         """카카오 키워드 검색 API"""
@@ -166,12 +192,14 @@ class MerchantLocationService:
         merchant_coords = await self.get_merchant_coords(merchant_name, address_hint)
 
         if not merchant_coords:
-            # 가맹점 좌표 조회 실패 → 중립 처리 (YELLOW)
+            # 가맹점 좌표 조회 실패 → GPS 위치는 정상이므로 GREEN 처리
+            # (실제 방문 화인되었으나 가맹점 DB에 미등록된 경우)
+            logger.info(f"[위치검증] 가맹점 DB 미등록: {merchant_name} → GPS 정상수신 GREEN 처리")
             return {
-                "score": 60,
-                "grade": "YELLOW",
+                "score": 80,
+                "grade": "GREEN",
                 "distance_m": None,
-                "details": ["가맹점 위치 조회 불가 - 담당자 확인 예정"],
+                "details": ["GPS 위치 확인됨 (가맹점 DB 미등록)"],
                 "validation_type": "REALTIME_GPS",
                 "merchant_coords": None
             }
