@@ -1,0 +1,127 @@
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    # Docker 내부 DNS resolver
+    resolver 127.0.0.11 valid=30s ipv6=off;
+
+    sendfile        on;
+    keepalive_timeout 65;
+    client_max_body_size 20M;
+
+    # ──────────────────────────────────────────
+    # HTTP → HTTPS 리디렉션 + certbot webroot
+    # ──────────────────────────────────────────
+    server {
+        listen 80;
+        server_name DOMAIN_PLACEHOLDER;
+
+        # Let's Encrypt 인증 경로 (HTTP 유지 필수)
+        location /.well-known/acme-challenge/ {
+            root /var/www/certbot;
+        }
+
+        # 나머지 HTTP → HTTPS 301 리디렉션
+        location / {
+            return 301 https://$host$request_uri;
+        }
+    }
+
+    # ──────────────────────────────────────────
+    # HTTPS 메인 서버
+    # ──────────────────────────────────────────
+    server {
+        listen 443 ssl;
+        http2 on;
+        server_name DOMAIN_PLACEHOLDER;
+
+        # SSL 인증서 (Let's Encrypt)
+        ssl_certificate     /etc/letsencrypt/live/DOMAIN_PLACEHOLDER/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/DOMAIN_PLACEHOLDER/privkey.pem;
+
+        # SSL 보안 설정
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 1d;
+
+        # HSTS (HTTPS 강제)
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+        add_header X-Frame-Options SAMEORIGIN;
+        add_header X-Content-Type-Options nosniff;
+
+        # PWA 헤더
+        add_header Service-Worker-Allowed "/";
+
+        # ── API → FastAPI 백엔드 ──
+        location /api/ {
+            set $backend_host backend;
+            proxy_pass http://$backend_host:8000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_read_timeout 120s;
+            proxy_connect_timeout 10s;
+        }
+
+        # ── 헬스체크 ──
+        location /health {
+            set $backend_host backend;
+            proxy_pass http://$backend_host:8000/health;
+            proxy_set_header Host $host;
+        }
+
+        # ── 다우오피스 콜백 ──
+        location /daou/callback {
+            set $backend_host backend;
+            proxy_pass http://$backend_host:8000/api/daou/callback;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+
+        # ── FastAPI Swagger 문서 ──
+        location /docs {
+            set $backend_host backend;
+            proxy_pass http://$backend_host:8000/docs;
+            proxy_set_header Host $host;
+        }
+
+        location /openapi.json {
+            set $backend_host backend;
+            proxy_pass http://$backend_host:8000/openapi.json;
+        }
+
+        # ── PWA 서비스워커 캐시 헤더 ──
+        location = /sw.js {
+            set $frontend_host frontend;
+            proxy_pass http://$frontend_host:3000/sw.js;
+            proxy_set_header Host $host;
+            add_header Cache-Control "no-cache, no-store, must-revalidate";
+            add_header Service-Worker-Allowed "/";
+        }
+
+        location = /manifest.json {
+            set $frontend_host frontend;
+            proxy_pass http://$frontend_host:3000/manifest.json;
+            proxy_set_header Host $host;
+            add_header Cache-Control "no-cache";
+        }
+
+        # ── React SPA 프론트엔드 ──
+        location / {
+            set $frontend_host frontend;
+            proxy_pass http://$frontend_host:3000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+        }
+    }
+}
