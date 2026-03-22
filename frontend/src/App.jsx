@@ -194,7 +194,7 @@ function App() {
         </a>
         {!isStandalone && (
           <span className="ml-3">
-            · <button onClick={() => window.armPWA?.install()} className="text-blue-500 hover:underline">📱 앱 설치</button>
+            · <button onClick={async () => { if (window.armInstallPrompt) { window.armInstallPrompt.prompt(); } }} className="text-blue-500 hover:underline">📱 앱 설치</button>
           </span>
         )}
       </footer>
