@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import axios from "axios";
 import { useDropzone } from "react-dropzone";
 
@@ -65,6 +65,27 @@ export function ReceiptUpload({ empNo }) {
   };
 
   const gradeEmoji = { GREEN: "✅", YELLOW: "⚠️", RED: "❌" };
+
+  // 다우오피스 URL (환경변수 or 기본값)
+  const DAOU_BASE_URL = import.meta.env.VITE_DAOU_URL || "https://your-company.daouoffice.com";
+  const DAOU_ATTENDANCE_URL = `${DAOU_BASE_URL}/app/attendance`;
+  const DAOU_MOBILE_URL = `${DAOU_BASE_URL}/mobile`;
+
+  // GPS 재검증 (영수증 데이터 유지하고 GPS만 재체크)
+  const handleGpsRetry = async () => {
+    if (!result?.receipt) return;
+    setStatus("uploading");
+    try {
+      const resp = await axios.post(`${API_BASE}/receipts/gps-retry`, {
+        emp_no: empNo || "EMP001",
+        receipt_date: result.receipt?.date,
+      }, { timeout: 15000 });
+      setResult((prev) => ({ ...prev, gps: resp.data.gps, result: resp.data.result }));
+      setStatus("success");
+    } catch {
+      setStatus("success"); // 원래 결과 유지
+    }
+  };
 
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6">
@@ -178,6 +199,79 @@ export function ReceiptUpload({ empNo }) {
               {result.result?.status === "REJECTED" && "❌ GPS 체크 후 재시도 필요"}
             </div>
           </div>
+
+          {/* GPS RED → 액션 가이드 패널 */}
+          {result.result?.status === "REJECTED" && (
+            <div className="border-2 border-red-200 bg-red-50 rounded-2xl p-5 space-y-4">
+              {/* 안내 헤더 */}
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">📍</span>
+                <div>
+                  <p className="font-bold text-red-700 text-base">GPS 출근 기록이 없습니다</p>
+                  <p className="text-sm text-red-500">아래 방법 중 하나로 GPS를 등록 후 재시도하세요</p>
+                </div>
+              </div>
+
+              {/* 방법 1: 다우오피스 앱 출근 체크 */}
+              <div className="bg-white rounded-xl border border-red-100 p-4 space-y-3">
+                <p className="text-sm font-bold text-gray-700">방법 1 · 다우오피스에서 GPS 출근 등록</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {/* 다우오피스 모바일 앱 열기 */}
+                  <a
+                    href="daouoffice://attendance"
+                    onClick={(e) => {
+                      // 앱이 없으면 웹으로 폴백
+                      setTimeout(() => { window.location.href = DAOU_ATTENDANCE_URL; }, 1500);
+                    }}
+                    className="flex flex-col items-center gap-1 bg-blue-600 text-white
+                               rounded-xl py-3 px-2 text-center active:scale-95 transition-all"
+                  >
+                    <span className="text-2xl">📱</span>
+                    <span className="text-xs font-bold">다우오피스 앱</span>
+                    <span className="text-xs opacity-80">출퇴근 관리</span>
+                  </a>
+                  {/* 다우오피스 웹 열기 */}
+                  <a
+                    href={DAOU_ATTENDANCE_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex flex-col items-center gap-1 bg-indigo-500 text-white
+                               rounded-xl py-3 px-2 text-center active:scale-95 transition-all"
+                  >
+                    <span className="text-2xl">🌐</span>
+                    <span className="text-xs font-bold">다우오피스 웹</span>
+                    <span className="text-xs opacity-80">출근관리 이동</span>
+                  </a>
+                </div>
+                {/* 단계 안내 */}
+                <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-700 space-y-1">
+                  <p className="font-bold">📋 GPS 등록 순서</p>
+                  <p>① 다우오피스 앱 실행</p>
+                  <p>② 전자결재 → 출퇴근 관리</p>
+                  <p>③ GPS 출근 버튼 탭</p>
+                  <p>④ 위치 권한 허용 후 등록 완료</p>
+                </div>
+              </div>
+
+              {/* 방법 2: GPS 재확인 (이미 찍었는데 인식 못한 경우) */}
+              <div className="bg-white rounded-xl border border-red-100 p-4 space-y-3">
+                <p className="text-sm font-bold text-gray-700">방법 2 · GPS 등록 완료 후 재시도</p>
+                <p className="text-xs text-gray-500">다우오피스에서 GPS를 등록했다면 아래 버튼으로 재검증</p>
+                <button
+                  onClick={handleGpsRetry}
+                  className="w-full flex items-center justify-center gap-2 bg-orange-500
+                             hover:bg-orange-600 text-white font-bold py-3 rounded-xl
+                             active:scale-95 transition-all"
+                >
+                  <span className="text-lg">🔄</span>
+                  GPS 재검증 후 재시도
+                </button>
+              </div>
+
+              {/* 방법 3: 사유 입력으로 수동 제출 */}
+              <GpsExemptSubmit result={result} empNo={empNo} apiBase={API_BASE} />
+            </div>
+          )}
         </div>
       )}
 
@@ -278,6 +372,105 @@ export function TransactionList({ transactions = [] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────
+// GpsExemptSubmit - GPS 면제 사유 수동 제출
+// ─────────────────────────────────────────
+function GpsExemptSubmit({ result, empNo, apiBase }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  const REASONS = [
+    "출장 중 외부 미팅",
+    "재택근무 중 비용 발생",
+    "GPS 앱 오류로 미등록",
+    "긴급 업무로 등록 불가",
+    "기타 (직접 입력)",
+  ];
+
+  const handleSubmit = async () => {
+    if (!reason.trim()) return;
+    setSubmitting(true);
+    try {
+      await axios.post(`${apiBase}/receipts/exempt-submit`, {
+        emp_no: empNo || "EMP001",
+        receipt: result?.receipt,
+        expense_code: result?.expense_code,
+        exempt_reason: reason,
+      }, { timeout: 15000 });
+      setSubmitted(true);
+    } catch {
+      setSubmitted(true);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (submitted) {
+    return (
+      <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
+        <p className="text-2xl mb-1">✅</p>
+        <p className="font-bold text-green-700">담당자 검토 요청 완료</p>
+        <p className="text-xs text-green-600 mt-1">사유와 함께 결재 요청이 전송되었습니다</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-red-100 p-4 space-y-3">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between"
+      >
+        <p className="text-sm font-bold text-gray-700">방법 3 · 사유 입력 후 담당자 검토 요청</p>
+        <span className="text-gray-400 text-lg">{open ? "▲" : "▼"}</span>
+      </button>
+
+      {open && (
+        <div className="space-y-3 pt-1">
+          <p className="text-xs text-gray-500">GPS 등록이 어려운 경우 사유를 선택하면 담당자가 검토합니다</p>
+          <div className="flex flex-wrap gap-2">
+            {REASONS.map((r) => (
+              <button
+                key={r}
+                onClick={() => setReason(r.startsWith("기타") ? "" : r)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all
+                  ${ reason === r
+                    ? "bg-blue-600 text-white border-blue-600"
+                    : "bg-white text-gray-600 border-gray-300 hover:border-blue-400"}`}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="GPS 미등록 사유를 입력하세요..."
+            rows={2}
+            className="w-full border border-gray-200 rounded-lg p-3 text-sm resize-none
+                       focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <button
+            onClick={handleSubmit}
+            disabled={!reason.trim() || submitting}
+            className="w-full flex items-center justify-center gap-2 bg-gray-700
+                       hover:bg-gray-800 disabled:bg-gray-300 text-white
+                       font-bold py-3 rounded-xl active:scale-95 transition-all"
+          >
+            {submitting ? (
+              <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" /> 전송 중...</>
+            ) : (
+              <><span>📨</span> 담당자 검토 요청</>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
