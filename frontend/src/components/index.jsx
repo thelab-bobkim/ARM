@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import axios from "axios";
 import { useDropzone } from "react-dropzone";
 
@@ -11,12 +11,22 @@ export function ReceiptUpload({ empNo }) {
   const [status, setStatus] = useState("idle"); // idle | uploading | success | error
   const [result, setResult] = useState(null);
   const [preview, setPreview] = useState(null);
+  const cameraInputRef = useRef(null);
 
-  const onDrop = useCallback(async (files) => {
-    const file = files[0];
+  // 카메라로 직접 촬영한 파일 처리
+  const handleCameraCapture = async (e) => {
+    const file = e.target.files?.[0];
     if (!file) return;
+    await processFile(file);
+    // input 초기화 (같은 파일 재촬영 가능)
+    e.target.value = "";
+  };
+
+  // 공통 파일 처리 함수
+  const processFile = async (file) => {
     setPreview(URL.createObjectURL(file));
     setStatus("uploading");
+    setResult(null);
 
     const formData = new FormData();
     formData.append("file", file);
@@ -33,6 +43,12 @@ export function ReceiptUpload({ empNo }) {
       setResult({ error: err.response?.data?.detail || "업로드 실패" });
       setStatus("error");
     }
+  };
+
+  const onDrop = useCallback(async (files) => {
+    const file = files[0];
+    if (!file) return;
+    await processFile(file);
   }, [empNo]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -54,19 +70,47 @@ export function ReceiptUpload({ empNo }) {
     <div className="max-w-2xl mx-auto p-6 space-y-6">
       <h2 className="text-2xl font-bold text-gray-800">영수증 업로드</h2>
 
+      {/* 카메라 직접 촬영 버튼 (모바일 우선) */}
+      <button
+        onClick={() => cameraInputRef.current?.click()}
+        disabled={status === "uploading"}
+        className="w-full flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-700
+                   disabled:bg-blue-300 text-white font-bold py-5 rounded-2xl shadow-lg
+                   text-lg transition-all active:scale-95"
+      >
+        <span className="text-3xl">📸</span>
+        <span>카메라로 바로 촬영</span>
+      </button>
+      {/* 카메라 input (숨김) - capture="environment"로 후면 카메라 우선 */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleCameraCapture}
+        className="hidden"
+      />
+
+      {/* 구분선 */}
+      <div className="flex items-center gap-3">
+        <hr className="flex-1 border-gray-200" />
+        <span className="text-sm text-gray-400">또는 파일 선택</span>
+        <hr className="flex-1 border-gray-200" />
+      </div>
+
       {/* 드롭존 */}
       <div
         {...getRootProps()}
-        className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors
+        className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors
           ${isDragActive ? "border-blue-500 bg-blue-50" : "border-gray-300 hover:border-blue-400 hover:bg-gray-50"}`}
       >
         <input {...getInputProps()} />
-        <div className="text-5xl mb-3">📷</div>
+        <div className="text-4xl mb-2">🖼️</div>
         {isDragActive ? (
           <p className="text-blue-600 font-medium">영수증 사진을 여기에 놓으세요</p>
         ) : (
           <>
-            <p className="text-gray-600 font-medium">영수증 사진을 드래그하거나 클릭하여 업로드</p>
+            <p className="text-gray-600 font-medium">갤러리에서 선택 또는 드래그 업로드</p>
             <p className="text-sm text-gray-400 mt-1">JPG, PNG, WEBP 지원 · 최대 10MB</p>
           </>
         )}
