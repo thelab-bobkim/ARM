@@ -35,7 +35,7 @@ services:
       DATABASE_URL: postgresql://arm_user:${DB_PASSWORD}@db:5432/arm_db
       DAOU_CLIENT_ID: ${DAOU_CLIENT_ID}
       DAOU_CLIENT_SECRET: ${DAOU_CLIENT_SECRET}
-      DAOU_BASE_URL: ${DAOU_BASE_URL:-https://dsti.daouoffice.com}
+      DAOU_BASE_URL: ${DAOU_BASE_URL:-https://api.daouoffice.com}
       DAOU_FORM_CODE: ${DAOU_FORM_CODE:-309686}
       WOORI_CLIENT_ID: ${WOORI_CLIENT_ID}
       WOORI_CLIENT_SECRET: ${WOORI_CLIENT_SECRET}

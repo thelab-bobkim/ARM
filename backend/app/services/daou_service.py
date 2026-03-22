@@ -27,14 +27,17 @@ class DaouOfficeService:
     def __init__(self, client_id: str, client_secret: str, callback_base_url: str = ""):
         self.client_id = client_id
         self.client_secret = client_secret
-        # 인스턴스 생성 시점에 환경변수 재확인
+        self.callback_base_url = callback_base_url
+        # ⚠️ 다우오피스 공식 문서 확인:
+        # OpenAPI 서버 IP: 35.216.3.121 → BASE URL은 항상 api.daouoffice.com
+        # 환경변수 우선, 없으면 api.daouoffice.com 사용
         self.base_url = os.getenv("DAOU_BASE_URL", "https://api.daouoffice.com")
         self.form_code = os.getenv("DAOU_FORM_CODE", "309686")
         self.approval_url = f"{self.base_url}/public/v4/approval/document"
         self.approval_popup_url = f"{self.base_url}/public/v4/approval/document/popup"
         self.noti_url = f"{self.base_url}/public/v1/noti"
         self.gps_url = f"{self.base_url}/public/v1/attendance/gps-logs"
-        self.callback_base_url = callback_base_url
+        logger.info(f"DaouOfficeService 초기화: base_url={self.base_url}, form_code={self.form_code}")
 
     # ─────────────────────────────────────────
     # 전자결재 자동 기안
@@ -83,10 +86,17 @@ class DaouOfficeService:
                     follow_redirects=False
                 )
                 redirect_url = resp.headers.get("location", "")
+                # 응답 본문 로깅 (디버그용)
+                try:
+                    resp_body = resp.text[:500]
+                except Exception:
+                    resp_body = ""
+                logger.info(f"다우오피스 응답: status={resp.status_code}, body={resp_body}")
                 return {
                     "status": "created",
                     "redirect_url": redirect_url,
-                    "http_status": resp.status_code
+                    "http_status": resp.status_code,
+                    "response_body": resp_body
                 }
         except Exception as e:
             logger.error(f"전자결재 기안 생성 실패: {e}")
