@@ -7,22 +7,33 @@ ARM Platform - DaouOffice Service
 """
 import httpx
 import logging
+import os
 from typing import Optional, List
 
 logger = logging.getLogger(__name__)
 
 
 class DaouOfficeService:
-    BASE_URL = "https://api.daouoffice.com"
+    # 환경변수에서 BASE_URL 읽기 (기본값: api.daouoffice.com)
+    BASE_URL = os.getenv("DAOU_BASE_URL", "https://api.daouoffice.com")
     APPROVAL_URL = f"{BASE_URL}/public/v4/approval/document"
     APPROVAL_POPUP_URL = f"{BASE_URL}/public/v4/approval/document/popup"
     NOTI_URL = f"{BASE_URL}/public/v1/noti"
     GPS_URL = f"{BASE_URL}/public/v1/attendance/gps-logs"
     WORKS_URL = f"{BASE_URL}/public/v1/works"
+    # 환경변수에서 FORM_CODE 읽기
+    DEFAULT_FORM_CODE = os.getenv("DAOU_FORM_CODE", "309686")
 
     def __init__(self, client_id: str, client_secret: str, callback_base_url: str = ""):
         self.client_id = client_id
         self.client_secret = client_secret
+        # 인스턴스 생성 시점에 환경변수 재확인
+        self.base_url = os.getenv("DAOU_BASE_URL", "https://api.daouoffice.com")
+        self.form_code = os.getenv("DAOU_FORM_CODE", "309686")
+        self.approval_url = f"{self.base_url}/public/v4/approval/document"
+        self.approval_popup_url = f"{self.base_url}/public/v4/approval/document/popup"
+        self.noti_url = f"{self.base_url}/public/v1/noti"
+        self.gps_url = f"{self.base_url}/public/v1/attendance/gps-logs"
         self.callback_base_url = callback_base_url
 
     # ─────────────────────────────────────────
@@ -52,7 +63,7 @@ class DaouOfficeService:
             "productName": "ARM-경비관리플랫폼",
             "productVersion": "2.0",
             "clientCompanyName": "ARM Platform",
-            "formCode": expense_code.get("code", "CORP_CARD_EXPENSE"),
+            "formCode": self.form_code,
             "title": title,
             "draftEmpNo": emp_no,
             "content": content_html,
@@ -60,10 +71,11 @@ class DaouOfficeService:
             "partnerDocId": receipt.get("approval_no", ""),
         }
 
-        url = self.APPROVAL_POPUP_URL if use_popup else self.APPROVAL_URL
+        url = self.approval_popup_url if use_popup else self.approval_url
 
         try:
             async with httpx.AsyncClient(timeout=30) as client:
+                logger.info(f"전자결재 기안 URL: {url}, formCode: {self.form_code}")
                 resp = await client.post(
                     url,
                     data=form_data,
@@ -143,7 +155,7 @@ class DaouOfficeService:
 
         try:
             async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.post(self.NOTI_URL, json=payload)
+                resp = await client.post(self.noti_url, json=payload)
                 return resp.json()
         except Exception as e:
             logger.error(f"알림 발송 실패 (emp: {emp_no}): {e}")
@@ -173,7 +185,7 @@ class DaouOfficeService:
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.get(
-                    self.GPS_URL,
+                    self.gps_url,
                     params={
                         "clientId": self.client_id,
                         "clientSecret": self.client_secret,
