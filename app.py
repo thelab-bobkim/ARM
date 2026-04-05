@@ -3,17 +3,16 @@ import requests
 
 app = Flask(__name__)
 
-# Genspark Claw 전용 설정
-# 월요일에 다우오피스에 등록할 IP: 4.155.211.143
+# [설정] 다우오피스 및 비즈플레이 정보
 D_URL = "https://doas.daouoffice.com"
-API_PATH = "/api/alliance/bizplay/v1/user/me"
-CLIENT_ID = "b1cdf7daf8fef8a3"
-CLIENT_SECRET = "c3e2d3f1ebc9fcb8dbedbbcea7fab8e5"
+PATH = "/api/alliance/bizplay/v1/user/me"
+C_ID = "b1cdf7daf8fef8a3"
+C_SEC = "c3e2d3f1ebc9fcb8dbedbbcea7fab8e5"
 
 @app.route('/')
 @app.route('/arm-ver2/editor')
 def editor():
-    # 통합 카드 내역 예시 데이터 (법인+개인)
+    # 법인/개인카드 통합 더미 데이터 (AI 학습용 구조)
     expenses = [
         {"date": "2026-04-05", "vendor": "포천힐스CC", "amount": 350000, "category": "접대비", "type": "corp"},
         {"date": "2026-04-05", "vendor": "현대주유소", "amount": 85000, "category": "유류비", "type": "personal"},
@@ -22,15 +21,11 @@ def editor():
     return render_template('editor.html', expenses=expenses)
 
 @app.route('/api/daou/sync', methods=['POST'])
-def sync_data():
-    headers = {
-        "X-Daou-Client-Id": CLIENT_ID,
-        "X-Daou-Client-Secret": CLIENT_SECRET,
-        "Content-Type": "application/json"
-    }
+def sync():
+    headers = {"X-Daou-Client-Id": C_ID, "X-Daou-Client-Secret": C_SEC, "Content-Type": "application/json"}
     try:
-        res = requests.get(f"{D_URL}{API_PATH}", headers=headers, timeout=5)
-        return jsonify({"status": res.status_code, "data": res.json() if res.status_code == 200 else "Wait for IP approval"})
+        res = requests.get(f"{D_URL}{PATH}", headers=headers, timeout=5)
+        return jsonify({"status": res.status_code, "msg": "Success" if res.status_code == 200 else "Wait for IP approval"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
